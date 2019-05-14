@@ -5,7 +5,6 @@ sum of squares ((y_true - y_pred) ** 2).sum() and v is the total
 sum of squares ((y_true - y_true.mean()) ** 2).sum().
 Best possible score is 1.0 and it can be negative.
 '''
-from datasets.samples_generator import make_regression
 from sklearn.model_selection import train_test_split
 from numpy.linalg import svd, norm
 import numpy as np
@@ -16,40 +15,33 @@ from tqdm import tqdm
 from models.ridge import Ridge
 from models.frequent_directions import FrequentDirections, RobustFrequentDirections, ISVD
 from models.randomProjections import RandomProjections, Hashing
+from datasets.samples_generator import make_regression
+from datasets.low_rank_regression import LowRankRegression
 
 
-d = 200
-n_samples = 200
-test_size = 200
-effective_rank = 20
+d = 2000
+n_samples = 2000
+test_size = 500
+effective_rank = 0.1
 random_state = 0
-make_data_params = dict(n_samples=n_samples+test_size,
-                        n_features=d,
-                        n_informative=effective_rank,
+make_data_params = dict(n_features=d,
                         effective_rank=effective_rank,
-                        tail_strength=0.01,
-                        noise=1/(n_samples + n_samples + test_size),
-                        coef_range=5,
-                        coef=True,
+                        noise=0.2,
+                        correlation=2,
                         random_state=random_state)
 # data
-X, y, w = make_regression(**make_data_params)
-_, s, Vt = svd(X)
-print("X norm:", s.sum())
-#print("X's sigular values:", s)
-X *= n_samples + test_size
-y *= n_samples + test_size
-print("mean of abs(X):", np.abs(X).mean())
-print("mean of abs(y):", np.abs(y).mean())
-#print("model coefs:", w)
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size,
-                                                    random_state=random_state)
+data = LowRankRegression(**make_data_params)
+s = data.sigmas
 s_df = pd.DataFrame(data=s, columns=['s'])
 s_df.to_csv('./output/data_sigmas.csv', sep=' ', index_label='i')
 # gamma choice
+X_train, y_train = data.sampleData(n_samples)
+X_test, y_test = data.sampleData(test_size)
+print("mean of abs(X):", np.abs(X_train).mean())
+print("mean of abs(y):", np.abs(y_train).mean())
 g_score = []
-for p in range(12):
-    g = 10 * 2**(-p)
+for p in range(-12, 10, 1):
+    g = 2**(p)
     ridge_regression = Ridge(d=d, gamma=g)
     ridge_regression.fit(X_train, y_train)
     y_pred = ridge_regression.predict(X_test)
