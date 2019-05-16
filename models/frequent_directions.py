@@ -1,95 +1,47 @@
 import numpy as np
 from numpy.linalg import svd, inv
-import time
+from models.linear_regression import LinearRegression
 
 
-class FrequentDirections():
+class IterativeRegression(LinearRegression):
 
-    def __init__(self, gamma, d, ell):
-        self.d = d
-        self.ell = ell
-        self.gamma = gamma
+    def __init__(self, d, ell, gamma=0):
+        LinearRegression.__init__(self, d, ell, gamma)
+        self.alpha = 0
         self.Xt_y = np.zeros(d)
-        self.X_sketch = np.zeros((0, d))
-        self.train_time = 0
+        self.X_sketch = np.zeros((1, d))
 
-    def partial_fit(self, X, y, sample_weight=None):
-        start_time = time.time()
+    def _sketch(self, X, y):
         self.X_sketch = np.concatenate((self.X_sketch, X))
-        _, s, Vt = svd(self.X_sketch)
         self.Xt_y += y @ X
-        if len(s) > self.ell:
-            delt2 = s[self.ell]**2
-            s = np.sqrt(s[:self.ell]**2 - delt2)
-            self.X_sketch = Vt[:self.ell] * s.reshape(-1, 1)
-        self.train_time += time.time() - start_time
-        return self
-
-    def get_params(self):
-        coef = inv(self.X_sketch.T @ self.X_sketch + np.identity(self.d) * self.gamma) @ self.Xt_y
-        return coef
-
-    def predict(self, X):
-        coef = inv(self.X_sketch.T @ self.X_sketch + np.identity(self.d) * self.gamma) @ self.Xt_y
-        return X @ coef
-
-
-class RobustFrequentDirections():
-
-    def __init__(self, gamma, d, ell):
-        self.d = d
-        self.ell = ell
-        self.alpha = gamma
-        self.Xt_y = np.zeros(d)
-        self.X_sketch = np.zeros((0, d))
-        self.train_time = 0
-
-    def partial_fit(self, X, y, sample_weight=None):
-        start_time = time.time()
-        self.X_sketch = np.concatenate((self.X_sketch, X))
         _, s, Vt = svd(self.X_sketch)
-        self.Xt_y += y @ X
-        if len(s) > self.ell:
-            delt2 = s[self.ell]**2
-            self.alpha += delt2/2
-            s = np.sqrt(s[:self.ell]**2 - delt2)
-            self.X_sketch = Vt[:self.ell] * s.reshape(-1, 1)
-        self.train_time += time.time() - start_time
-        return self
+        s = self._shrink(s)
+        self.X_sketch = Vt[:self.ell] * s.reshape(-1, 1)
 
-    def get_params(self):
-        coef = inv(self.X_sketch.T @ self.X_sketch + np.identity(self.d) * self.alpha) @ self.Xt_y
-        return coef
+    # abstractmethod
+    def _shrink(self, s):
+        # Shrink sketch rank
+        pass
 
-    def predict(self, X):
-        coef = inv(self.X_sketch.T @ self.X_sketch + np.identity(self.d) * self.alpha) @ self.Xt_y
-        return X @ coef
+    def _coef(self, gamma):
+        return inv(self.X_sketch.T @ self.X_sketch + np.identity(self.d) * (gamma + self.alpha)) @ self.Xt_y
 
 
-class ISVD():
+class FrequentDirections(IterativeRegression):
 
-    def __init__(self, gamma, d, ell):
-        self.d = d
-        self.ell = ell
-        self.gamma = gamma
-        self.Xt_y = np.zeros(d)
-        self.X_sketch = np.zeros((0, d))
-        self.train_time = 0
+    def _shrink(self, s):
+        return np.sqrt(s[:self.ell]**2 - s[self.ell]**2)
 
-    def partial_fit(self, X, y, sample_weight=None):
-        start_time = time.time()
-        self.X_sketch = np.concatenate((self.X_sketch, X))
-        _, s, Vt = svd(self.X_sketch)
-        self.Xt_y += y @ X
-        if len(s) > self.ell:
-            self.X_sketch = Vt[:self.ell] * s[:self.ell].reshape(-1, 1)
-        self.train_time += time.time() - start_time
-        return self
 
-    def get_params(self):
-        coef = inv(self.X_sketch.T @ self.X_sketch + np.identity(self.d) * self.gamma) @ self.Xt_y
-        return coef
+class RobustFrequentDirections(IterativeRegression):
 
-    def predict(self, X):
-        coef = inv(self.X_sketch.T @ self.X_sketch + np.identity(self.d) * self.gamma) @ self.Xt_y
-        return X @ coef
+    def _shrink(self, s):
+        delt2 = s[self.ell]**2
+        self.alpha += delt2/2
+        return np.sqrt(s[:self.ell]**2 - delt2)
+
+
+class ISVD(IterativeRegression):
+
+    def _shrink(self, s):
+        return s[:self.ell]
