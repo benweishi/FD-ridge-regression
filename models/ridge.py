@@ -20,12 +20,12 @@ class Ridge():
         self.Xt_y = y @ X
         return self
 
-    def get_params(self, gamma=None):
+    def get_coef(self, gamma=None):
         if gamma is None:
             gamma = self.gamma
         coef = self.Xt_y @ inv(self.Xt_X + np.identity(self.d) * gamma)
         return coef
 
     def predict(self, X, gamma=None):
-        coef = self.get_params(gamma)
+        coef = self.get_coef(gamma)
         return X @ coef

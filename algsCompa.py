@@ -19,14 +19,15 @@ from datasets.samples_generator import make_regression
 from datasets.low_rank_regression import LowRankRegression
 
 
-d = 2000
-n_samples = 2000
-test_size = 500
+d = 1000
+n_samples = 1000
+eval_size = 200
+test_size = 200
 effective_rank = 0.1
 random_state = 0
 make_data_params = dict(n_features=d,
                         effective_rank=effective_rank,
-                        noise=0.2,
+                        noise=1,
                         correlation=2,
                         random_state=random_state)
 # data
@@ -34,66 +35,74 @@ data = LowRankRegression(**make_data_params)
 s = data.sigmas
 s_df = pd.DataFrame(data=s, columns=['s'])
 s_df.to_csv('./output/data_sigmas.csv', sep=' ', index_label='i')
-# gamma choice
 X_train, y_train = data.sampleData(n_samples)
+X_eval, y_eval = data.sampleData(eval_size)
 X_test, y_test = data.sampleData(test_size)
-print("mean of abs(X):", np.abs(X_train).mean())
-print("mean of abs(y):", np.abs(y_train).mean())
-g_score = []
-for p in range(-12, 10, 1):
-    g = 2**(p)
-    ridge_regression = Ridge(d=d, gamma=g)
-    ridge_regression.fit(X_train, y_train)
-    y_pred = ridge_regression.predict(X_test)
-    y_score = r2_score(y_test, y_pred)
-    g_score.append([g, y_score])
-g_df = pd.DataFrame(data=g_score, columns=['g', 'score'])
-g_df.to_csv('./output/gamma_choice.csv', sep=' ', index=False)
-best_g = g_df.loc[g_df.score.idxmax(), 'g']
-print('best gamma:', best_g)
-print('ridge score:', g_df.loc[g_df.score.idxmax(), 'score'])
-ridge_regression = Ridge(d=d, gamma=best_g)
+
+# train
+###############################################################################
+# train RR
+ridge_regression = Ridge(d=d)
 ridge_regression.fit(X_train, y_train)
-# w_ridge = ridge_regression.coef_
-w_ridge = ridge_regression.get_params()
-#print("ridge coefs:", w_ridge)
-# fitting
-epses = []
-scores = []
-times = []
-results = []  # ell * alg * result
-ells = []
+# train ohter models
+algs = {'FD': [], 'RFD': [], 'iSVD': [], 'RP': [], 'Hashing': []}
+ells = np.arange(10, 101, 10, dtype=np.int)
 pbar = tqdm(total=100, ascii='#')
-for ell in range(10, 101, 10):
-    ells.append(ell)
-    batch_size = ell
-    n_batch = n_samples // batch_size
-    # models
-    algs = []
-    algs.append(FrequentDirections(gamma=best_g, d=d, ell=batch_size))
-    algs.append(RobustFrequentDirections(gamma=best_g, d=d, ell=batch_size))
-    algs.append(ISVD(gamma=best_g, d=d, ell=batch_size))
-    algs.append(RandomProjections(gamma=best_g, d=d, ell=batch_size))
-    algs.append(Hashing(gamma=best_g, d=d, ell=batch_size))
+for ell in ells:
+    n_batch = n_samples // ell
+    algs['FD'].append(FrequentDirections(d=d, ell=ell))
+    algs['RFD'].append(RobustFrequentDirections(d=d, ell=ell))
+    algs['iSVD'].append(ISVD(d=d, ell=ell))
+    algs['RP'].append(RandomProjections(d=d, ell=ell))
+    algs['Hashing'].append(Hashing(d=d, ell=ell))
     for i in range(n_batch):
-        for alg in algs:
-            alg.partial_fit(X_train[i*batch_size:(i+1)*batch_size], y_train[i*batch_size:(i+1)*batch_size])
-    # evaluate
-    result = []
-    for alg in algs:
-        w_est = alg.get_params()
-        eps = np.linalg.norm(w_ridge - w_est) / np.linalg.norm(w_ridge)
-        y_pred = alg.predict(X_test)
-        score = r2_score(y_test, y_pred)
-        result.append([eps, score, alg.train_time])
-    results.append(result)
+        for alg_list in algs.values():
+            alg_list[-1].partial_fit(X_train[i*ell:(i+1)*ell], y_train[i*ell:(i+1)*ell])
     pbar.update(10)
 pbar.close()
-results = np.array(results)  # ell * alg * result
-names = ['FD', 'RFD', 'iSVD', 'RP', 'Hashing']
-result_df = pd.DataFrame(data=results[:, :, 0], columns=names, index=ells)
-result_df.to_csv('./output/eps.csv', sep=' ', index_label='ell')
-result_df = pd.DataFrame(data=results[:, :, 1], columns=names, index=ells)
-result_df.to_csv('./output/score.csv', sep=' ', index_label='ell')
-result_df = pd.DataFrame(data=results[:, :, 2], columns=names, index=ells)
-result_df.to_csv('./output/time.csv', sep=' ', index_label='ell')
+
+# evaluate
+###############################################################################
+# training time
+times = {}
+for key, value in algs.items():
+    time = [alg.train_time for alg in value]
+    times[key] = time
+times_df = pd.DataFrame.from_dict(times).set_index(ells)
+times_df.to_csv('./output/time.csv', sep=' ', index_label='ell')
+# gamma choice
+gs = [2**(p) for p in range(-9, 9, 1)]
+score = {}
+score['gamma'] = gs
+score['RR'] = [r2_score(y_test, ridge_regression.predict(X_test, g)) for g in gs]
+score['RFD10'] = [r2_score(y_test, algs['RFD'][0].predict(X_test, g)) for g in gs]
+score['RFD50'] = [r2_score(y_test, algs['RFD'][4].predict(X_test, g)) for g in gs]
+score['RFD100'] = [r2_score(y_test, algs['RFD'][9].predict(X_test, g)) for g in gs]
+gamma_df = pd.DataFrame.from_dict(score).set_index('gamma')
+gamma_df.to_csv('./output/gamma-score.csv', sep=' ')
+# RFD l-score, gamma = [0, 0.1, 1, 10]
+score = {}
+score['rfd0'] = [r2_score(y_test, alg.predict(X_test)) for alg in algs['RFD']]
+score['rfd1'] = [r2_score(y_test, alg.predict(X_test, gamma=1.0)) for alg in algs['RFD']]
+score['rfd10'] = [r2_score(y_test, alg.predict(X_test, gamma=10.0)) for alg in algs['RFD']]
+score['rfd30'] = [r2_score(y_test, alg.predict(X_test, gamma=30.0)) for alg in algs['RFD']]
+score['rfd100'] = [r2_score(y_test, alg.predict(X_test, gamma=100.0)) for alg in algs['RFD']]
+score_df = pd.DataFrame.from_dict(score).set_index(ells)
+score_df.to_csv('./output/rfd-ell-score.csv', sep=' ', index_label='ell')
+# model compare
+scores = {}
+gammas = {}
+errors = {}
+for key, value in algs.items():
+    eval_scores = [[r2_score(y_eval, alg.predict(X_eval, g)) for g in gs] for alg in value]
+    eval_scores = np.array(eval_scores)
+    best_g_i = np.argmax(eval_scores, axis=1)
+    gammas[key] = np.array(gs)[best_g_i]
+    scores[key] = [r2_score(y_eval, value[i].predict(X_eval, gammas[key][i])) for i in range(len(value))]
+    errors[key] = [np.linalg.norm(ridge_regression.get_coef(gammas[key][i]) - value[i].get_coef(gammas[key][i])) / np.linalg.norm(ridge_regression.get_coef(gammas[key][i])) for i in range(len(value))]
+gammas_df = pd.DataFrame.from_dict(gammas).set_index(ells)
+gammas_df.to_csv('./output/gammas.csv', sep=' ', index_label='ell')
+scores_df = pd.DataFrame.from_dict(scores).set_index(ells)
+scores_df.to_csv('./output/scores.csv', sep=' ', index_label='ell')
+errors_df = pd.DataFrame.from_dict(errors).set_index(ells)
+errors_df.to_csv('./output/errors.csv', sep=' ', index_label='ell')

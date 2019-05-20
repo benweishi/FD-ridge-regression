@@ -21,10 +21,9 @@ class ProjectionRegression(LinearRegression):
 
 class RandomProjections(ProjectionRegression):
 
-    def __init__(self, gamma, d, ell):
+    def __init__(self, d, ell, gamma=0):
         ProjectionRegression.__init__(self, d, ell, gamma)
         self.scale = 1 / np.sqrt(self.ell)
-
 
     def _sketch(self, X, y):
         randomMatrix = np.random.choice([-1, 1], (self.ell, len(X)))
