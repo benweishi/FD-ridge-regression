@@ -5,17 +5,13 @@ sum of squares ((y_true - y_pred) ** 2).sum() and v is the total
 sum of squares ((y_true - y_true.mean()) ** 2).sum().
 Best possible score is 1.0 and it can be negative.
 '''
-from sklearn.model_selection import train_test_split
-from numpy.linalg import svd, norm
 import numpy as np
 import pandas as pd
 from sklearn.metrics import r2_score
 from tqdm import tqdm
-#from sklearn.linear_model import Ridge
 from models.ridge import Ridge
 from models.frequent_directions import FrequentDirections, RobustFrequentDirections, ISVD
 from models.randomProjections import RandomProjections, Hashing
-from datasets.samples_generator import make_regression
 from datasets.low_rank_regression import LowRankRegression
 
 
