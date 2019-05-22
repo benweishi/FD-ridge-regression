@@ -37,3 +37,8 @@ class LinearRegression():
     def _coef(self, gamma):
         # Shrink sketch rank
         pass
+
+    def get_time(self):
+        start_time = time.time()
+        self._coef(1)
+        return self.train_time + (time.time() - start_time)

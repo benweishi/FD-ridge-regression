@@ -62,8 +62,7 @@ pbar.close()
 # training time
 times = {}
 for key, value in algs.items():
-    time = [alg.train_time for alg in value]
-    times[key] = time
+    times[key] = [alg.get_time() for alg in value]
 times_df = pd.DataFrame.from_dict(times).set_index(ells)
 times_df.to_csv('./output/time.csv', sep=' ', index_label='ell')
 # gamma choice
