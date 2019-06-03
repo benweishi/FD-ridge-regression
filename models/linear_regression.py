@@ -10,6 +10,7 @@ class LinearRegression():
         self.ell = ell
         self.gamma = gamma
         self.train_time = 0
+        self.coef = None
 
     def partial_fit(self, X, y):
         start_time = time.time()
@@ -21,8 +22,11 @@ class LinearRegression():
     def get_coef(self, gamma=None):
         if gamma is None:
             gamma = self.gamma
-        coef = self._coef(gamma)
-        return coef
+        if self.coef is not None and gamma == self.gamma:
+            return self.coef
+        self.gamma = gamma
+        self.coef = self._coef(gamma)
+        return self.coef
 
     def predict(self, X, gamma=None):
         coef = self.get_coef(gamma)
