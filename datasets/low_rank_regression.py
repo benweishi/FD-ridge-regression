@@ -1,18 +1,23 @@
 import numpy as np
 from sklearn.utils import check_array, check_random_state
 from scipy.stats import ortho_group, norm
+from scipy.stats import special_ortho_group
 import math
 
 
 class LowRankRegression():
-    def __init__(self, n_features=100, effective_rank=0.1, correlation=2.0, noise=0.2, random_state=None):
+    def __init__(self, n_features=100, effective_rank=0.1, correlation=2.0, noise=0.2, random_state=None, random_dir=True):
         self.d = n_features
         if effective_rank < 1:
             self.effective_rank = int(n_features * effective_rank)
         else:
             self.effective_rank = effective_rank
         self.generator = check_random_state(random_state)
-        self.ortho = ortho_group.rvs(self.d, random_state=self.generator)
+        self.random_dir = random_dir
+        if self.random_dir:
+            self.ortho = ortho_group.rvs(self.d, random_state=self.generator)
+        else:
+            self.ortho = np.identity(self.d)
         self.sigmas = np.exp(-(np.arange(0, self.d, 1) / self.effective_rank)**2)
         self.coefs = self.generator.normal(size=self.effective_rank)
         self.coefs /= np.linalg.norm(self.coefs)
