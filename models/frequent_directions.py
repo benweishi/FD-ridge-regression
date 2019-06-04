@@ -1,5 +1,5 @@
 import numpy as np
-from numpy.linalg import svd, inv
+from numpy.linalg import svd, inv, pinv
 from models.linear_regression import LinearRegression
 
 
@@ -9,14 +9,17 @@ class IterativeRegression(LinearRegression):
         LinearRegression.__init__(self, d, ell, gamma)
         self.alpha = 0
         self.Xt_y = np.zeros(d)
+        self.Vt = np.zeros((ell, d))
+        self.s = np.zeros(ell)
         self.X_sketch = np.zeros((1, d))
 
     def _sketch(self, X, y):
+        self.X_sketch = self.Vt * self.s.reshape(-1, 1)
         self.X_sketch = np.concatenate((self.X_sketch, X))
         self.Xt_y += y @ X
-        _, s, Vt = svd(self.X_sketch)
-        s = self._shrink(s)
-        self.X_sketch = Vt[:self.ell] * s.reshape(-1, 1)
+        _, s, Vt = svd(self.X_sketch, full_matrices=False)
+        self.s = self._shrink(s)
+        self.Vt = Vt[:self.ell]
 
     # abstractmethod
     def _shrink(self, s):
@@ -24,7 +27,10 @@ class IterativeRegression(LinearRegression):
         pass
 
     def _coef(self, gamma):
-        return inv(self.X_sketch.T @ self.X_sketch + np.identity(self.d) * (gamma + self.alpha)) @ self.Xt_y
+        v_space_part = self.Vt @ self.Xt_y
+        rest_part = (self.Xt_y - self.Vt.T @ v_space_part) / (gamma + self.alpha)
+        v_space_part = self.Vt.T @ (v_space_part / (self.s**2 + gamma + self.alpha))
+        return v_space_part + rest_part
 
 
 class FrequentDirections(IterativeRegression):

@@ -1,5 +1,5 @@
 import numpy as np
-from numpy.linalg import inv
+from numpy.linalg import inv, pinv
 from models.linear_regression import LinearRegression
 
 
