@@ -15,11 +15,11 @@ from models.randomProjections import RandomProjections, Hashing
 from datasets.low_rank_regression import LowRankRegression
 import time
 
-dp = 10
+dp = 13
 d = 2**dp
-n_samples = d
-eval_size = d // 4
-test_size = d // 4
+n_samples = 2**(dp+2)
+eval_size = n_samples // 8
+test_size = n_samples // 8
 effective_rank = 0.1
 random_state = 0
 make_data_params = dict(n_features=d,
@@ -52,12 +52,13 @@ print(time.time() - start_time)
 # train
 ###############################################################################
 # train RR
-print("Training Full Ridge Regression ({}).".format(test_size))
+print("Training Full Ridge Regression.")
 start_time = time.time()
 ridge_regression = Ridge(d=d)
 ridge_regression.fit(X_train, y_train)
 print(time.time() - start_time)
 # train ohter models
+print("Training all models.")
 algs = {'FD': [], 'RFD': [], 'iSVD': [], 'RP': [], 'Hashing': []}
 ells = np.array([2**p for p in range(4, dp, 1)])
 pbar = tqdm(total=len(ells), ascii='#')
@@ -88,7 +89,7 @@ times_df.to_csv('./output/time.csv', sep=' ', index_label='ell')
 # gamma choice
 print("Evaluate gamma and score for RFDs.")
 start_time = time.time()
-gs = [2**(p) for p in range(-9, 9, 1)]
+gs = [4**(p) for p in range(dp//2 - 10, dp//2, 1)]
 score = {}
 score['gamma'] = gs
 score['RR'] = [r2_score(y_test, ridge_regression.predict(X_test, g)) for g in gs]
@@ -102,11 +103,11 @@ gamma_df.to_csv('./output/gamma-score.csv', sep=' ')
 print("RFD with fixed gammas.")
 start_time = time.time()
 score = {}
-score['rfd0'] = [r2_score(y_test, alg.predict(X_test)) for alg in algs['RFD']]
-score['rfd1'] = [r2_score(y_test, alg.predict(X_test, gamma=1.0)) for alg in algs['RFD']]
-score['rfd10'] = [r2_score(y_test, alg.predict(X_test, gamma=10.0)) for alg in algs['RFD']]
-score['rfd30'] = [r2_score(y_test, alg.predict(X_test, gamma=30.0)) for alg in algs['RFD']]
-score['rfd100'] = [r2_score(y_test, alg.predict(X_test, gamma=100.0)) for alg in algs['RFD']]
+score['rfd0'] = [r2_score(y_eval, alg.predict(X_eval), gamma=0) for alg in algs['RFD']]
+score['rfd1'] = [r2_score(y_eval, alg.predict(X_eval, gamma=gs[0])) for alg in algs['RFD']]
+score['rfd3'] = [r2_score(y_eval, alg.predict(X_eval, gamma=gs[3])) for alg in algs['RFD']]
+score['rfd6'] = [r2_score(y_eval, alg.predict(X_eval, gamma=gs[6])) for alg in algs['RFD']]
+score['rfd9'] = [r2_score(y_eval, alg.predict(X_eval, gamma=gs[9])) for alg in algs['RFD']]
 print(time.time() - start_time)
 score_df = pd.DataFrame.from_dict(score).set_index(ells)
 score_df.to_csv('./output/rfd-ell-score.csv', sep=' ', index_label='ell')
@@ -121,7 +122,7 @@ for key, value in algs.items():
     eval_scores = np.array(eval_scores)
     best_g_i = np.argmax(eval_scores, axis=1)
     gammas[key] = np.array(gs)[best_g_i]
-    scores[key] = [r2_score(y_eval, value[i].predict(X_eval, gammas[key][i])) for i in range(len(value))]
+    scores[key] = [r2_score(y_test, value[i].predict(X_test, gammas[key][i])) for i in range(len(value))]
     errors[key] = [np.linalg.norm(ridge_regression.get_coef(gammas[key][i]) - value[i].get_coef(gammas[key][i])) / np.linalg.norm(ridge_regression.get_coef(gammas[key][i])) for i in range(len(value))]
 print(time.time() - start_time)
 gammas_df = pd.DataFrame.from_dict(gammas).set_index(ells)
