@@ -3,19 +3,19 @@ from numpy.linalg import inv, pinv
 from models.linear_regression import LinearRegression
 
 
-class ProjectionRegression(LinearRegression):
+class ProjectionRegression():
 
-    def __init__(self, d, ell, gamma=0):
-        LinearRegression.__init__(self, d, ell, gamma)
+    def __init__(self, d, ell):
+        self.d = d
+        self.ell = ell
         self.X_sketch = np.zeros((self.ell, self.d))
         self.y_sketch = np.zeros(ell)
 
-    # abstractmethod
-    def _randomMatrix(self):
-        # Shrink sketch rank
-        pass
+    def partial_fit(self, X, y):
+        self._sketch(X, y)
+        return self
 
-    def _coef(self, gamma):
+    def compute_coef(self, gamma):
         return inv(self.X_sketch.T @ self.X_sketch + np.identity(self.d) * gamma) @ self.X_sketch.T @ self.y_sketch
 
 
