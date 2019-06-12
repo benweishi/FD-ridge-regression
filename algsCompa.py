@@ -10,127 +10,160 @@ import pandas as pd
 from sklearn.metrics import r2_score
 from tqdm import tqdm
 from models.ridge import Ridge
-from models.frequent_directions import FrequentDirections, RobustFrequentDirections, ISVD
+from models.frequent_directions import FrequentDirections, ISVD
 from models.randomProjections import RandomProjections, Hashing
 from datasets.low_rank_regression import LowRankRegression
 import time
 
 dp = 13
+n_FD_ells = 6
+n_RP_ells = 9
 d = 2**dp
-n_samples = 2**(dp+2)
+n_samples = 2**(dp+4)
 eval_size = n_samples // 8
 test_size = n_samples // 8
 effective_rank = 0.1
+noise = 1
 random_state = 0
 make_data_params = dict(n_features=d,
                         effective_rank=effective_rank,
-                        noise=1,
+                        noise=noise,
                         correlation=2,
                         random_state=random_state,
                         random_dir=False)
 # data
-print("Init data generator ({0}).".format(d))
+print("d={}; n_samples={}.".format(d, n_samples))
+print("Init data generator.")
 start_time = time.time()
 data = LowRankRegression(**make_data_params)
 print(time.time() - start_time)
+theorem_gamma = (d * noise**2) / np.linalg.norm(data.coefs)**2
 s = data.sigmas
 s_df = pd.DataFrame(data=s, columns=['s'])
 s_df.to_csv('./output/data_sigmas.csv', sep=' ', index_label='i')
-print("Generating data ({}).".format(n_samples))
-start_time = time.time()
-X_train, y_train = data.sampleData(n_samples)
-print(time.time() - start_time)
-print("Generating data ({}).".format(eval_size))
-start_time = time.time()
-X_eval, y_eval = data.sampleData(eval_size)
-print(time.time() - start_time)
-print("Generating data ({}).".format(test_size))
-start_time = time.time()
-X_test, y_test = data.sampleData(test_size)
-print(time.time() - start_time)
 
 # train
 ###############################################################################
-# train RR
-print("Training Full Ridge Regression.")
-start_time = time.time()
-ridge_regression = Ridge(d=d)
-ridge_regression.fit(X_train, y_train)
-print(time.time() - start_time)
-# train ohter models
-print("Training all models.")
-algs = {'FD': [], 'RFD': [], 'iSVD': [], 'RP': [], 'Hashing': []}
-ells = np.array([2**p for p in range(4, dp, 1)])
-pbar = tqdm(total=len(ells), ascii='#')
-for ell in ells:
-    n_batch = n_samples // ell
-    algs['FD'].append(FrequentDirections(d=d, ell=ell))
-    algs['RFD'].append(RobustFrequentDirections(d=d, ell=ell))
-    algs['iSVD'].append(ISVD(d=d, ell=ell))
-    algs['RP'].append(RandomProjections(d=d, ell=ell))
-    algs['Hashing'].append(Hashing(d=d, ell=ell))
-    for i in range(n_batch):
-        for alg_list in algs.values():
-            alg_list[-1].partial_fit(X_train[i*ell:(i+1)*ell], y_train[i*ell:(i+1)*ell])
+# init models
+print("Init models.")
+FD_ells = np.array([2**p for p in range(dp - n_FD_ells, dp, 1)])
+RP_ells = np.array([2**p for p in range(dp - n_FD_ells, dp - n_FD_ells + n_RP_ells, 1)])
+print("FD_ells:", FD_ells)
+print("RP_ells:", RP_ells)
+np.savetxt('FD_ells.csv', FD_ells, delimiter=' ', header='ell')
+np.savetxt('RP_ells.csv', RP_ells, delimiter=' ', header='ell')
+###
+algs = []
+train_times = []
+algs.append(Ridge(d=d))
+train_times.append(0)
+FD_idx = []
+iSVD_idx = []
+RP_idx = []
+Hash_idx = []
+RFD_idx = []
+i = 1
+for ell in FD_ells:
+    algs.append(FrequentDirections(d=d, ell=ell))
+    train_times.append(0)
+    FD_idx.append(i)
+    i += 1
+for ell in FD_ells:
+    algs.append(ISVD(d=d, ell=ell))
+    train_times.append(0)
+    iSVD_idx.append(i)
+    i += 1
+for ell in RP_ells:
+    algs.append(RandomProjections(d=d, ell=ell))
+    train_times.append(0)
+    RP_idx.append(i)
+    i += 1
+for ell in RP_ells:
+    algs.append(Hashing(d=d, ell=ell))
+    train_times.append(0)
+    Hash_idx.append(i)
+    i += 1
+for ell in FD_ells:
+    RFD_idx.append(i)
+    i += 1
+# start training
+batch_size = 2**(dp - n_FD_ells)
+n_batch = n_samples // batch_size
+print("Start training, batch size: {}; number batches: {}.".format(batch_size, n_batch))
+pbar = tqdm(total=n_batch, ascii='#')
+for i in range(n_batch):
+    X, y = data.sampleData(batch_size)
+    for j in range(len(algs)):
+        start_time = time.time()
+        algs[j].partial_fit(X, y)
+        train_times[j] += time.time() - start_time
     pbar.update(1)
 pbar.close()
-
+train_times = np.array(train_times)
+# Output training time
+print('Full Ridge Regression training time:', train_times[0])
+pd.DataFrame({'ell': FD_ells, 'FD': train_times[FD_idx], 'iSVD': train_times[iSVD_idx]}).set_index('ell').to_csv('output/FD_train_time.csv', sep=' ')
+pd.DataFrame({'ell': RP_ells, 'RP': train_times[RP_idx], 'Hashing': train_times[Hash_idx]}).set_index('ell').to_csv('output/RP_train_time.csv', sep=' ')
 # evaluate
 ###############################################################################
-# training time
-print("Evaluate running time.")
-start_time = time.time()
-times = {}
-for key, value in algs.items():
-    times[key] = [alg.get_time() for alg in value]
-print(time.time() - start_time)
-times_df = pd.DataFrame.from_dict(times).set_index(ells)
-times_df.to_csv('./output/time.csv', sep=' ', index_label='ell')
-# gamma choice
-print("Evaluate gamma and score for RFDs.")
-start_time = time.time()
-gs = [4**(p) for p in range(dp//2 - 10, dp//2, 1)]
-score = {}
-score['gamma'] = gs
-score['RR'] = [r2_score(y_test, ridge_regression.predict(X_test, g)) for g in gs]
-score['RFD16'] = [r2_score(y_test, algs['RFD'][0].predict(X_test, g)) for g in gs]
-score['RFD64'] = [r2_score(y_test, algs['RFD'][2].predict(X_test, g)) for g in gs]
-score['RFD256'] = [r2_score(y_test, algs['RFD'][4].predict(X_test, g)) for g in gs]
-print(time.time() - start_time)
-gamma_df = pd.DataFrame.from_dict(score).set_index('gamma')
-gamma_df.to_csv('./output/gamma-score.csv', sep=' ')
-# RFD l-score, gamma = [0, 0.1, 1, 10]
-print("RFD with fixed gammas.")
-start_time = time.time()
-score = {}
-score['rfd0'] = [r2_score(y_eval, alg.predict(X_eval), gamma=0) for alg in algs['RFD']]
-score['rfd1'] = [r2_score(y_eval, alg.predict(X_eval, gamma=gs[0])) for alg in algs['RFD']]
-score['rfd3'] = [r2_score(y_eval, alg.predict(X_eval, gamma=gs[3])) for alg in algs['RFD']]
-score['rfd6'] = [r2_score(y_eval, alg.predict(X_eval, gamma=gs[6])) for alg in algs['RFD']]
-score['rfd9'] = [r2_score(y_eval, alg.predict(X_eval, gamma=gs[9])) for alg in algs['RFD']]
-print(time.time() - start_time)
-score_df = pd.DataFrame.from_dict(score).set_index(ells)
-score_df.to_csv('./output/rfd-ell-score.csv', sep=' ', index_label='ell')
-# model compare
-print("Scores and errors with evaluated gammas.")
-start_time = time.time()
-scores = {}
-gammas = {}
-errors = {}
-for key, value in algs.items():
-    eval_scores = [[r2_score(y_eval, alg.predict(X_eval, g)) for g in gs] for alg in value]
-    eval_scores = np.array(eval_scores)
-    best_g_i = np.argmax(eval_scores, axis=1)
-    gammas[key] = np.array(gs)[best_g_i]
-    scores[key] = [r2_score(y_test, value[i].predict(X_test, gammas[key][i])) for i in range(len(value))]
-    errors[key] = [np.linalg.norm(ridge_regression.get_coef(gammas[key][i]) - value[i].get_coef(gammas[key][i])) / np.linalg.norm(ridge_regression.get_coef(gammas[key][i])) for i in range(len(value))]
-print(time.time() - start_time)
-gammas_df = pd.DataFrame.from_dict(gammas).set_index(ells)
-gammas_df.to_csv('./output/gammas.csv', sep=' ', index_label='ell')
-scores_df = pd.DataFrame.from_dict(scores).set_index(ells)
-scores_df.to_csv('./output/scores.csv', sep=' ', index_label='ell')
-errors_df = pd.DataFrame.from_dict(errors).set_index(ells)
-errors_df.to_csv('./output/errors.csv', sep=' ', index_label='ell')
-timeVscore_df = pd.concat([times_df, scores_df], axis=1)
-for key, value in algs.items():
-    timeVscore_df[key].to_csv('./output/t2s_{}.csv'.format(key), header=['time', 'score'], sep=' ', index_label='ell')
+# query time
+print('Compute coefficients.')
+gs = np.array([8**(p) for p in range(dp//2 - 9, dp//2, 1)])
+np.savetxt('gammas.csv', gs, delimiter=' ', header='gamma')
+query_times = []
+coefs = []
+pbar = tqdm(total=len(algs), ascii='#')
+for i in range(len(algs)):
+    start_time = time.time()
+    coefs.append([algs[i].compute_coef(gamma) for gamma in gs])
+    query_times.append((time.time() - start_time)/len(gs))
+    pbar.update(1)
+pbar.close()
+pbar = tqdm(total=len(FD_ells), ascii='#')
+for i in range(1, 1+len(FD_ells), 1):
+    start_time = time.time()
+    coefs.append([algs[i].compute_coef(gamma, True) for gamma in gs])
+    query_times.append((time.time() - start_time)/len(gs))
+    pbar.update(1)
+pbar.close()
+query_times = np.array(query_times)
+coefs = np.array(coefs)
+print('Full Ridge Regression mean query time:', query_times[0])
+pd.DataFrame({'ell': FD_ells, 'FD': query_times[FD_idx], 'iSVD': query_times[iSVD_idx]}).set_index('ell').to_csv('output/FD_query_time.csv', sep=' ')
+pd.DataFrame({'ell': RP_ells, 'RP': query_times[RP_idx], 'Hashing': query_times[Hash_idx]}).set_index('ell').to_csv('output/RP_query_time.csv', sep=' ')
+pd.DataFrame({'ell': FD_ells, 'FD': query_times[FD_idx]+train_times[FD_idx], 'iSVD': query_times[iSVD_idx]+train_times[iSVD_idx]}).set_index('ell').to_csv('output/FD_time.csv', sep=' ')
+pd.DataFrame({'ell': RP_ells, 'RP': query_times[RP_idx]+train_times[RP_idx], 'Hashing': query_times[Hash_idx]+train_times[Hash_idx]}).set_index('ell').to_csv('output/RP_time.csv', sep=' ')
+# evaluation
+print("Cross validation.")
+X, y = data.sampleData(eval_size)
+scores = np.array([[r2_score(y, X @ coef) for coef in g_coefs] for g_coefs in coefs])
+errors = np.array([[np.linalg.norm(o_coef - coef) for coef, o_coef in zip(g_coefs, coefs[0])] for g_coefs in coefs])
+best_idx = np.argmax(scores, axis=1)
+best_scores = scores[range(len(scores)), best_idx]
+best_coefs = coefs[range(len(coefs)), best_idx]
+best_gammas = gs[best_idx]
+print('Full Ridge Regression best score:', best_scores[0])
+score_header = ['RR']
+score_header.extend(['FD_{}'.format(ell) for ell in FD_ells])
+score_header.extend(['iSVD_{}'.format(ell) for ell in FD_ells])
+score_header.extend(['RP_{}'.format(ell) for ell in RP_ells])
+score_header.extend(['Hashing_{}'.format(ell) for ell in RP_ells])
+score_header.extend(['RFD_{}'.format(ell) for ell in FD_ells])
+gamma_scores = pd.DataFrame(scores.T, index=gs, columns=score_header)
+gamma_scores.index.names = ['gamma']
+gamma_scores.to_csv('output/gamma-scores.csv', sep=' ')
+print('Full Ridge Regression best gamma:', best_gammas[0])
+pd.DataFrame({'ell': FD_ells, 'FD': best_gammas[FD_idx], 'iSVD': best_gammas[iSVD_idx], 'RFD': best_gammas[RFD_idx]}).set_index('ell').to_csv('output/FD_best_gamma.csv', sep=' ')
+pd.DataFrame({'ell': RP_ells, 'RP': best_gammas[RP_idx], 'Hashing': best_gammas[Hash_idx]}).set_index('ell').to_csv('output/RP_best_gamma.csv', sep=' ')
+# test
+X, y = data.sampleData(eval_size)
+test_scores = np.array([r2_score(y, X @ coef) for coef in best_coefs])
+print('Full Ridge Regression test score:', test_scores[0])
+pd.DataFrame({'ell': FD_ells, 'FD': test_scores[FD_idx], 'iSVD': test_scores[iSVD_idx], 'RFD': test_scores[RFD_idx]}).set_index('ell').to_csv('output/FD_test_score.csv', sep=' ')
+pd.DataFrame({'ell': RP_ells, 'RP': test_scores[RP_idx], 'Hashing': test_scores[Hash_idx]}).set_index('ell').to_csv('output/RP_test_score.csv', sep=' ')
+# time-scores
+pd.DataFrame({'time': query_times[FD_idx]+train_times[FD_idx], 'score': test_scores[FD_idx]}).to_csv('output/FD_time_score.csv', sep=' ', index=False)
+pd.DataFrame({'time': query_times[iSVD_idx]+train_times[iSVD_idx], 'score': test_scores[iSVD_idx]}).to_csv('output/iSVD_time_score.csv', sep=' ', index=False)
+pd.DataFrame({'time': query_times[FD_idx]+train_times[FD_idx], 'score': test_scores[RFD_idx]}).to_csv('output/RFD_time_score.csv', sep=' ', index=False)
+pd.DataFrame({'time': query_times[RP_idx]+train_times[RP_idx], 'score': test_scores[RP_idx]}).to_csv('output/RP_time_score.csv', sep=' ', index=False)
+pd.DataFrame({'time': query_times[Hash_idx]+train_times[Hash_idx], 'score': test_scores[Hash_idx]}).to_csv('output/Hash_time_score.csv', sep=' ', index=False)

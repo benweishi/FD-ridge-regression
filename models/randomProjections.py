@@ -1,6 +1,5 @@
 import numpy as np
 from numpy.linalg import inv, pinv
-from models.linear_regression import LinearRegression
 
 
 class ProjectionRegression():
@@ -10,9 +9,18 @@ class ProjectionRegression():
         self.ell = ell
         self.X_sketch = np.zeros((self.ell, self.d))
         self.y_sketch = np.zeros(ell)
+        self.cache_X = np.empty((self.ell, self.d))
+        self.cache_y = np.empty(self.ell)
+        self.cache_idx = 0
 
     def partial_fit(self, X, y):
-        self._sketch(X, y)
+        n = len(y)
+        self.cache_X[self.cache_idx:self.cache_idx+n] = X
+        self.cache_y[self.cache_idx:self.cache_idx+n] = y
+        self.cache_idx += n
+        if self.cache_idx >= self.ell:
+            self._sketch(self.cache_X, self.cache_y)
+            self.cache_idx = 0
         return self
 
     def compute_coef(self, gamma):
@@ -21,8 +29,8 @@ class ProjectionRegression():
 
 class RandomProjections(ProjectionRegression):
 
-    def __init__(self, d, ell, gamma=0):
-        ProjectionRegression.__init__(self, d, ell, gamma)
+    def __init__(self, d, ell):
+        ProjectionRegression.__init__(self, d, ell)
         self.scale = 1 / np.sqrt(self.ell)
 
     def _sketch(self, X, y):

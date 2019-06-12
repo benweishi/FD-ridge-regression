@@ -4,15 +4,14 @@ from numpy.linalg import inv
 
 class Ridge():
 
-    def __init__(self, d, gamma=0):
-        self.gamma = gamma
+    def __init__(self, d):
         self.d = d
         self.Xt_X = np.zeros((d, d))
         self.Xt_y = np.zeros(d)
 
     def partial_fit(self, X, y):
         self.Xt_X += X.T @ X
-        self.Xt_y += X.T @ y.reshape((-1, 1))
+        self.Xt_y += X.T @ y
         return self
 
     def fit(self, X, y):
@@ -20,9 +19,7 @@ class Ridge():
         self.Xt_y = y @ X
         return self
 
-    def get_coef(self, gamma=None):
-        if gamma is None:
-            gamma = self.gamma
+    def compute_coef(self, gamma=1):
         coef = self.Xt_y @ inv(self.Xt_X + np.identity(self.d) * gamma)
         return coef
 

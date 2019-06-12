@@ -1,6 +1,5 @@
 import numpy as np
 from numpy.linalg import svd, inv, pinv
-from models.linear_regression import LinearRegression
 
 
 class IterativeRegression():
@@ -12,29 +11,37 @@ class IterativeRegression():
         self.Xt_y = np.zeros(d)
         self.Vt = np.zeros((ell, d))
         self.s = np.zeros(ell)
-        self.cache_X = np.empty((2*self.ell, self.d))
-        self.cache_y = np.empty(2*self.ell)
+        self.X_sketch = np.zeros((2*self.ell, self.d))
+        self.cache_y = np.zeros(self.ell)
         self.cache_idx = 0
 
     def partial_fit(self, X, y):
-        self.Xt_y += y @ X
         n = len(y)
-        self.cache_X[self.cache_idx:n] = X
+        self.X_sketch[self.cache_idx+self.ell:self.ell+self.cache_idx+n] = X
+        self.cache_y[self.cache_idx:self.cache_idx+n] = y
         self.cache_idx += n
-        if self.cache_idx == 2*self.ell:
-            _, s, Vt = svd(self.X_sketch, full_matrices=False)
-            self.s = self._shrink(s)
-            self.Vt = Vt[:self.ell]
-            self.cache_X[:self.ell] = self.Vt * self.s.reshape(-1, 1)
-            self.cache_idx = self.ell
+        if self.cache_idx >= self.ell:
+            self._sketch()
         return self
+
+    def _sketch(self):
+        self.Xt_y += self.cache_y @ self.X_sketch[self.ell:]
+        self.cache_y *= 0
+        # TODO: try sklearn.decomposition.TruncatedSVD
+        _, s, Vt = svd(self.X_sketch, full_matrices=False)
+        self.s = self._shrink(s)
+        self.Vt = Vt[:self.ell]
+        self.X_sketch[:self.ell] = self.Vt * self.s.reshape(-1, 1)
+        self.cache_idx = 0
 
     # abstractmethod
     def _shrink(self, s):
         # Shrink sketch rank
         pass
 
-    def compute_coef(self, gamma, robust=True):
+    def compute_coef(self, gamma, robust=False):
+        if self.cache_idx != 0:
+            self._sketch()
         alpha = self.alpha if robust else 0
         v_space_part = self.Vt @ self.Xt_y
         rest_part = (self.Xt_y - self.Vt.T @ v_space_part) / (gamma + alpha)
