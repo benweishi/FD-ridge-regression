@@ -4,7 +4,7 @@ from numpy.linalg import svd, inv, pinv
 
 class IterativeRegression():
 
-    def __init__(self, d, ell):
+    def __init__(self, d, ell, robust=False):
         self.d = d
         self.ell = ell
         self.alpha = 0
@@ -14,6 +14,7 @@ class IterativeRegression():
         self.X_sketch = np.zeros((2*self.ell, self.d))
         self.cache_y = np.zeros(self.ell)
         self.cache_idx = 0
+        self.robust = robust
 
     def partial_fit(self, X, y):
         n = len(y)
@@ -22,6 +23,10 @@ class IterativeRegression():
         self.cache_idx += n
         if self.cache_idx >= self.ell:
             self._sketch()
+        return self
+
+    def partial_fit_finish(self):
+        self._sketch()
         return self
 
     def _sketch(self):
@@ -39,7 +44,9 @@ class IterativeRegression():
         # Shrink sketch rank
         pass
 
-    def compute_coef(self, gamma, robust=False):
+    def compute_coef(self, gamma, robust=None):
+        if robust is None:
+            robust = self.robust
         if self.cache_idx != 0:
             self._sketch()
         alpha = self.alpha if robust else 0
